@@ -33,7 +33,7 @@ tfidf_matrix = vectorizer.fit_transform(courses['Skills'])
 # Starting message on my Telegram Bot
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "Hello, t'is I, CoursExpert. I recommend you online-courses and learning pathways! Can you tell me what do you want to learn about and be as detailed as possible in your description?")
+    bot.reply_to(message, "Hello, t'is I, CoursExpert. I recommend you online-courses and learning pathways! Can you tell me what do you want to learn about and please be a little bit general, my dataset is a little bit limited right now!")
 
 # Search user's query to pull out the top10 courses based on the cosine similarity
 # Thanks to CS113 for teaching me what cosine similarity is here
