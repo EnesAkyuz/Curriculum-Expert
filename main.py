@@ -83,32 +83,49 @@ def process_path_request(message):
 
         # check if the user created the network and the graph, otherwise throw an error response
         if chat_id in user_session_database and 'graph' in user_session_database[chat_id]:
-
-            # If user created these, get the longest path
-            course_graph = user_session_database[chat_id]['graph']
-            path = longest_path_within_limit(course_graph, max_courses)
-
-            # When the path exists, proceed to return it to the user
-            if path:
-                # Ok this part is a little makeshift because I did not know how to
-                # keep the urls with the titles within the graph
-                course_titles = [course_graph.nodes[node]['title'] for node in path]
-                urls = []
-
-                # So, I just wrote a for loop!
-                for title in course_titles:
-                    top_courses = user_dict["top_courses"]
-                    course_list = top_courses[top_courses["Title"] == title]
-                    for url in course_list["URL"]:
-                        urls.append(url)
-                # If everything goes well, return the *ornamented* ChatGPT improved message to the user
-                response_message = improve_message_GPT("Recommended path for " + str(max_courses) + " courses:\n" + " -> ".join(course_titles) + "with the respective urls:\n" + "\n".join(urls))
-            else:
-                response_message = "No path found with the given number of " + str(max_courses) + " courses."
+            # Give the user the opportunity to choose
+            markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True)
+            markup.add('Depth', 'Breadth')
+            msg = bot.send_message(chat_id, "What is your priority, depth or breadth? (Note: Depth implies you are going to get similar courses that are easy to transition from one to another. Breadth means that you are going to get courses that are different from each other to get the widest skillset, but not in much depth!)",
+                                   reply_markup=markup)
+            bot.register_next_step_handler(msg, execute_path_search, max_courses, chat_id)
         else:
             response_message = "Minervan! Follow the instructions, you have not generated a graph yet!"
     except ValueError:
         response_message = "Please only enter the number and nothing else!"
+
+
+def execute_path_search(message, max_courses, chat_id):
+    search_type = message.text.lower()
+    course_graph = user_session_database[chat_id]['graph']
+    user_dict = user_session_database[chat_id]
+
+    if "depth" in search_type:
+        path = longest_path_within_limit(course_graph, max_courses)
+    elif "breadth" in search_type:
+        path = shortest_path_within_limit(course_graph, max_courses)
+    else:
+        bot.send_message(chat_id, "Please choose a valid search method!")
+        return
+
+    # When the path exists, proceed to return it to the user
+    if path:
+        # Ok this part is a little makeshift because I did not know how to
+        # keep the urls with the titles within the graph
+        course_titles = [course_graph.nodes[node]['title'] for node in path]
+        urls = []
+
+        # So, I just wrote a for loop!
+        for title in course_titles:
+            top_courses = user_dict["top_courses"]
+            course_list = top_courses[top_courses["Title"] == title]
+            for url in course_list["URL"]:
+                urls.append(url)
+        # If everything goes well, return the *ornamented* ChatGPT improved message to the user
+        response_message = improve_message_GPT("Recommended path for " + str(max_courses) + " courses:\n" + " -> ".join(
+            course_titles) + "with the respective urls:\n" + "\n".join(urls))
+    else:
+        response_message = "No path found with the given number of " + str(max_courses) + " courses."
     bot.send_message(chat_id, response_message)
 
 def longest_path_within_limit(course_graph, max_courses):
@@ -139,11 +156,44 @@ def longest_path_within_limit(course_graph, max_courses):
 # I did not want to provide the user with a choice here
 # However, since I was not sure if this feature should have stayed
 # I just kept the choice button in
+
+def shortest_path_within_limit(course_graph, max_courses):
+    shortest_path = None
+
+    # Ensure that only paths with exactly max_courses nodes are considered
+    # Otherwise the shortest path is always two nodes
+    for start in course_graph.nodes():
+        for target in course_graph.nodes():
+            if start != target:
+                # Find all paths up to max_courses - 1 edges (which results in max_courses nodes)
+                all_paths = list(nx.all_simple_paths(course_graph, source=start, target=target, cutoff=max_courses - 1))
+
+                # Filter paths to include exactly the number of nodes required
+                max_num_paths = [path for path in all_paths if len(path) == max_courses]
+
+                # If there are multiple paths with the exact node count, choose the shortest by some criteria
+                if max_num_paths:
+                    # Sort paths by length to get the shortest path (though all should be the same length)
+                    max_num_paths.sort(key=len)
+                    candidate_path = max_num_paths[0]
+
+                    # Check if this is the shortest path found so far
+                    if shortest_path is None or len(candidate_path) < len(shortest_path):
+                        shortest_path = candidate_path
+
+    if shortest_path:
+        # Convert the path of node identifiers to a path of node titles
+        node_path = [course_graph.nodes[node]['title'] for node in shortest_path]
+        return node_path
+    return []
+
+
 def question2(message):
     markup = telebot.types.InlineKeyboardMarkup()
     button = telebot.types.InlineKeyboardButton("Click here!", callback_data='network_printer')
     markup.add(button)
     bot.send_message(message.chat.id, "I can also create a transition network in which, the proximities of the nodes will symbolize how similar two subjects are in terms of skills.", reply_markup=markup)
+
 
 # Upon the call from question2, handle how to print the network.
 @bot.callback_query_handler(func=lambda call: call.data == 'network_printer')
