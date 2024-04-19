@@ -33,7 +33,7 @@ tfidf_matrix = vectorizer.fit_transform(courses['Skills'])
 # Starting message on my Telegram Bot
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "Hello, t'is I, CoursExpert. I recommend you online-courses and learning pathways! Can you tell me what do you want to learn about today?")
+    bot.reply_to(message, "Hello, t'is I, CoursExpert. I recommend you online-courses and learning pathways! Can you tell me what do you want to learn about and be as detailed as possible in your description?")
 
 # Search user's query to pull out the top10 courses based on the cosine similarity
 # Thanks to CS113 for teaching me what cosine similarity is here
@@ -64,21 +64,25 @@ def handle_query(message):
     # Go to the next question for designing a graph and a path
     question2(message)
 
-@bot.message_handler(commands=['find_path'])
-def ask_for_path_limit(message):
-    msg = bot.send_message(message.chat.id, "Please enter the maximum number of courses you would like to undertake:")
-    bot.register_next_step_handler(msg, process_path_request)
 
 def process_path_request(message):
     try:
         max_courses = int(message.text)
         chat_id = message.chat.id
+        user_dict = user_session_database[chat_id]
+
         if chat_id in user_session_database and 'graph' in user_session_database[chat_id]:
             G = user_session_database[chat_id]['graph']
             path = longest_path_within_limit(G, max_courses)
             if path:
                 course_titles = [G.nodes[node]['title'] for node in path]
-                response_message = "Recommended path for " + str(max_courses) + " courses:\n" + " -> ".join(course_titles)
+                urls = []
+                for title in course_titles:
+                    top_courses = user_dict["top_courses"]
+                    course_list = top_courses[top_courses["Title"] == title]
+                    for url in course_list["URL"]:
+                        urls.append(url)
+                response_message = improve_message_GPT("Recommended path for " + str(max_courses) + " courses:\n" + " -> ".join(course_titles) + "with the respective urls:\n" + "\n".join(urls))
             else:
                 response_message = "No valid path found within the limit of " + str(max_courses) + " courses."
         else:
@@ -144,7 +148,7 @@ def generate_diagram(top_courses, chat_id):
     similarity_matrix = cosine_similarity(tfidf_matrix)
 
     G = nx.Graph()
-    course_titles = [' '.join(title.split()[:3]) for title in top_courses['Title'].tolist()]
+    course_titles = top_courses['Title'].tolist()
 
     # Add nodes with course titles
     for i, title in enumerate(course_titles):
@@ -186,19 +190,16 @@ def generate_diagram(top_courses, chat_id):
     plt.close()
     return diagram_path
 
-
+def improve_message_GPT(message):
+    completion = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are responsible for taking this message in and presenting this online course path in a nice way to the user with the urls of the courses, alongside the transferable skills between these courses and what makes this a good path!"},
+            {"role": "user", "content": message}
+        ]
+    )
+    return completion.choices[0].message.content
 
 if __name__ == '__main__':
     bot.polling()
 
-
-"""
-completion = client.chat.completions.create(
-  model="gpt-3.5-turbo",
-  messages=[
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Hello!"}
-  ]
-)
-print(completion.choices[0].message.content)
-"""
